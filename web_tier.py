@@ -10,7 +10,13 @@ AWS_REGION = 'us-east-1'
 REQUEST_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-req-queue'
 RESPONSE_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-resp-queue'
 
-sqs_client = boto3.client('sqs', region_name=AWS_REGION)
+# sqs_client = boto3.client('sqs', region_name=AWS_REGION)
+
+sts_client = boto3.client('sts')
+
+session = boto3.Session()
+
+sqs_client = session.client('sqs', region_name=AWS_REGION)
 
 @app.post("/", response_class=PlainTextResponse)
 async def get_app_result(inputFile: UploadFile):

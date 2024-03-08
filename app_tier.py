@@ -5,7 +5,18 @@ AWS_REGION = 'us-east-1'
 REQUEST_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-req-queue'
 RESPONSE_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-resp-queue'
 
-sqs_client = boto3.client('sqs', region_name=AWS_REGION)
+# sqs_client = boto3.client('sqs', region_name=AWS_REGION)
+
+sts_client = boto3.client('sts')
+
+# response = sts_client.get_caller_identity()
+# instance_role_name = response['Arn'].split('/')[1]
+
+# print(instance_role_name)
+
+session = boto3.Session()
+
+sqs_client = session.client('sqs', region_name=AWS_REGION)
 
 data_pt_path = './Resources/model/data.pt'
 
