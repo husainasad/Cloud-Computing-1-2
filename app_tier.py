@@ -1,11 +1,15 @@
 from Resources.model.face_recognition import face_match
 import boto3, base64, json, asyncio
 
-AWS_REGION = 'us-east-1'
-REQUEST_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-req-queue'
-RESPONSE_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-resp-queue'
-IN_BUCKET = '1225380117-in-bucket'
-OUT_BUCKET = '1225380117-out-bucket'
+with open('config.json') as f:
+    config = json.load(f)
+
+AWS_REGION = config['AWS_REGION']
+REQUEST_QUEUE_URL = config['REQUEST_QUEUE_URL']
+RESPONSE_QUEUE_URL = config['RESPONSE_QUEUE_URL']
+IN_BUCKET = config['IN_BUCKET']
+OUT_BUCKET = config['OUT_BUCKET']
+DATA_PT_PATH = config['DATA_PT_PATH']
 
 sts_client = boto3.client('sts')
 

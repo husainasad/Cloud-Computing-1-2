@@ -1,0 +1,8 @@
+{
+    "AWS_REGION": "us-east-1",
+    "REQUEST_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-req-queue",
+    "RESPONSE_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-resp-queue",
+    "IN_BUCKET": "1225380117-in-bucket",
+    "OUT_BUCKET": "1225380117-out-bucket",
+    "DATA_PT_PATH": "./Resources/model/data.pt"
+  }

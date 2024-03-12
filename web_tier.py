@@ -4,9 +4,12 @@ import boto3, base64, json, asyncio
 
 app = FastAPI()
 
-AWS_REGION = 'us-east-1'
-REQUEST_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-req-queue'
-RESPONSE_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-resp-queue'
+with open('config.json') as f:
+    config = json.load(f)
+
+AWS_REGION = config['AWS_REGION']
+REQUEST_QUEUE_URL = config['REQUEST_QUEUE_URL']
+RESPONSE_QUEUE_URL = config['RESPONSE_QUEUE_URL']
 
 sts_client = boto3.client('sts')
 
