@@ -19,7 +19,30 @@ sqs_client = session.client('sqs', region_name=AWS_REGION)
 
 s3_client = session.client('s3')
 
-data_pt_path = './Resources/model/data.pt'
+async def get_data_From_sqs(message_body):
+    image_name = message_body['image_name']
+    image_encoded = message_body['image_encoded']
+    image_data = base64.b64decode(image_encoded)
+
+    return image_name, image_data
+
+async def upload_to_s3_and_delete_msg(image_name, image_data, model_result, receipt_handle):
+    s3_client.put_object(Body=image_data, Bucket=IN_BUCKET, Key=image_name + '.jpg')
+    s3_client.put_object(Body=model_result, Bucket=OUT_BUCKET, Key=image_name)
+
+    sqs_client.delete_message(
+        QueueUrl=REQUEST_QUEUE_URL,
+        ReceiptHandle=receipt_handle
+    )
+
+    output_msg = f'{image_name}:{model_result}'
+
+    sqs_client.send_message(
+        QueueUrl=RESPONSE_QUEUE_URL,
+        MessageBody=(
+            output_msg
+        )
+    )
 
 async def process_img(image_data):
     try:
@@ -53,42 +76,13 @@ async def process_msg():
             
             message_body = json.loads(message['Body'])
 
-            image_name = message_body['image_name']
-            # print('image name is: ' + image_name)
-
-            image_encoded = message_body['image_encoded']
-            image_data = base64.b64decode(image_encoded)
-
-            # print('Received image data from SQS')
+            image_name, image_data = await get_data_From_sqs(message_body)
 
             model_result = await process_img(image_data)
 
-            # Add request and response in S3 buckets
-            s3_client.put_object(Body=image_data, Bucket=IN_BUCKET, Key=image_name + '.jpg')
-            s3_client.put_object(Body=model_result, Bucket=OUT_BUCKET, Key=image_name)
-
-            # Delete received message from queue
-            receipt_handle = message['ReceiptHandle']
-            sqs_client.delete_message(
-                QueueUrl=REQUEST_QUEUE_URL,
-                ReceiptHandle=receipt_handle
-            )
-            # print('Deleted message')
-            
-            output_msg = f'{image_name}:{model_result}'
-            # print(output_msg)
-
-            sqs_client.send_message(
-                QueueUrl=RESPONSE_QUEUE_URL,
-                MessageBody=(
-                    output_msg
-                )
-            )
-
-            # print(f"Message sent to Response SQS with MessageId: {send_response['MessageId']}")
+            await upload_to_s3_and_delete_msg(image_name, image_data, model_result, message['ReceiptHandle'])
 
 
 if __name__ == "__main__":
-    # process_msg()
     loop = asyncio.get_event_loop()
     loop.run_until_complete(process_msg())
