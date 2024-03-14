@@ -1,5 +1,5 @@
 from Resources.model.face_recognition import face_match
-import boto3, base64, json, asyncio
+import boto3, base64, json, asyncio, os
 
 with open('config.json') as f:
     config = json.load(f)
@@ -23,13 +23,14 @@ data_pt_path = './Resources/model/data.pt'
 
 async def process_img(image_data):
     try:
-        # image_data = base64.b64decode(encoded_img)
         with open('temp.jpg', 'wb') as f:
             f.write(image_data)
-        result = face_match('temp.jpg', data_pt_path)[0]
+        result = face_match('temp.jpg', DATA_PT_PATH)[0]
         return f'{result}'
     except Exception as e:
         return f"Error: {str(e)}"
+    finally:
+        os.remove('temp.jpg')
     
 
 async def process_msg():
