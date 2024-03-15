@@ -1,5 +1,5 @@
 from Resources.model.face_recognition import face_match
-import boto3, base64, json, asyncio, os
+import boto3, base64, json, asyncio, os, signal, logging, sys
 
 with open('config.json') as f:
     config = json.load(f)
@@ -18,6 +18,17 @@ session = boto3.Session()
 sqs_client = session.client('sqs', region_name=AWS_REGION)
 
 s3_client = session.client('s3')
+
+terminate_flag = False
+
+def signal_handler(signum, frame):
+    global terminate_flag
+    terminate_flag = True
+    logging.info("Termination signal received. Waiting for current request to complete...")
+    sys.exit(0)
+    
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 async def get_data_From_sqs(message_body):
     image_name = message_body['image_name']
@@ -57,7 +68,7 @@ async def process_img(image_data):
     
 
 async def process_msg():
-    while True:
+    while not terminate_flag:
         receive_response = sqs_client.receive_message(
             QueueUrl=REQUEST_QUEUE_URL,
             AttributeNames=[
@@ -67,7 +78,7 @@ async def process_msg():
             MessageAttributeNames=[
                 'All'
             ],
-            VisibilityTimeout=0,
+            VisibilityTimeout=10,
             WaitTimeSeconds=0
         )
 
@@ -82,7 +93,10 @@ async def process_msg():
 
             await upload_to_s3_and_delete_msg(image_name, image_data, model_result, message['ReceiptHandle'])
 
+            if terminate_flag:
+                break
 
 if __name__ == "__main__":
+    logging.basicConfig(filename='app_server.log', level=logging.INFO)
     loop = asyncio.get_event_loop()
     loop.run_until_complete(process_msg())
