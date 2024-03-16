@@ -1,4 +1,5 @@
 from Resources.model.face_recognition import face_match
+from functools import partial
 import boto3, base64, json, asyncio, os, signal, logging, sys
 
 with open('config.json') as f:
@@ -12,14 +13,15 @@ OUT_BUCKET = config['OUT_BUCKET']
 DATA_PT_PATH = config['DATA_PT_PATH']
 
 sts_client = boto3.client('sts')
-
 session = boto3.Session()
-
 sqs_client = session.client('sqs', region_name=AWS_REGION)
-
 s3_client = session.client('s3')
 
 terminate_flag = False
+
+def run_async(func, *args, **kwargs):
+    loop = asyncio.get_event_loop()
+    return loop.run_in_executor(None, partial(func, *args, **kwargs))
 
 def signal_handler(signum, frame):
     global terminate_flag
@@ -38,22 +40,13 @@ async def get_data_From_sqs(message_body):
     return image_name, image_data
 
 async def upload_to_s3_and_delete_msg(image_name, image_data, model_result, receipt_handle):
-    s3_client.put_object(Body=image_data, Bucket=IN_BUCKET, Key=image_name + '.jpg')
-    s3_client.put_object(Body=model_result, Bucket=OUT_BUCKET, Key=image_name)
-
-    sqs_client.delete_message(
-        QueueUrl=REQUEST_QUEUE_URL,
-        ReceiptHandle=receipt_handle
-    )
+    await run_async(s3_client.put_object, Body=image_data, Bucket=IN_BUCKET, Key=image_name + '.jpg')
+    await run_async(s3_client.put_object, Body=model_result, Bucket=OUT_BUCKET, Key=image_name)
+    await run_async(sqs_client.delete_message, QueueUrl=REQUEST_QUEUE_URL, ReceiptHandle=receipt_handle)
 
     output_msg = f'{image_name}:{model_result}'
 
-    sqs_client.send_message(
-        QueueUrl=RESPONSE_QUEUE_URL,
-        MessageBody=(
-            output_msg
-        )
-    )
+    await run_async(sqs_client.send_message, QueueUrl=RESPONSE_QUEUE_URL, MessageBody=output_msg)
 
 async def process_img(image_data):
     try:
@@ -71,28 +64,19 @@ async def process_msg():
     while not terminate_flag:
         receive_response = sqs_client.receive_message(
             QueueUrl=REQUEST_QUEUE_URL,
-            AttributeNames=[
-                'SentTimestamp'
-            ],
+            AttributeNames=['SentTimestamp'],
             MaxNumberOfMessages=1,
-            MessageAttributeNames=[
-                'All'
-            ],
-            VisibilityTimeout=10,
+            MessageAttributeNames=['All'],
+            VisibilityTimeout=30,
             WaitTimeSeconds=0
         )
 
         if 'Messages' in receive_response:
             message = receive_response['Messages'][0]
-            
             message_body = json.loads(message['Body'])
-
             image_name, image_data = await get_data_From_sqs(message_body)
-
             model_result = await process_img(image_data)
-
             await upload_to_s3_and_delete_msg(image_name, image_data, model_result, message['ReceiptHandle'])
-
             if terminate_flag:
                 break
 
