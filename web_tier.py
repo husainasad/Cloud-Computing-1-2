@@ -1,7 +1,6 @@
 from fastapi import FastAPI, UploadFile
 from fastapi.responses import PlainTextResponse
-from functools import partial
-import boto3, base64, json, asyncio
+import aioboto3, base64, json, asyncio, time
 
 app = FastAPI()
 
@@ -15,21 +14,25 @@ IN_BUCKET = config['IN_BUCKET']
 APP_INSTANCE_NAME = config['APP_INSTANCE_NAME']
 MAX_SERVERS = config['MAX_SERVERS']
 
-sts_client = boto3.client('sts')
-session = boto3.Session()
+session = aioboto3.Session(region_name=AWS_REGION)
 
-sqs_client = session.client('sqs', region_name=AWS_REGION)
-ec2_client = session.client('ec2', region_name=AWS_REGION)
-
-def run_async(func, *args, **kwargs):
-    loop = asyncio.get_event_loop()
-
-    return loop.run_in_executor(None, partial(func, *args, **kwargs))
+response_store = {}
+pending_requests = False
+last_request_time = time.time()
 
 async def get_instances_with_tag(instance_name=APP_INSTANCE_NAME):
-    response = await run_async(ec2_client.describe_instances, Filters=[{'Name': 'tag:Name', 'Values': [instance_name + '*']}])
-    instances = [instance for reservation in response.get('Reservations', []) for instance in reservation.get('Instances', [])]
-    return instances
+    async with session.client('ec2') as ec2_client:
+        response = await ec2_client.describe_instances(
+            Filters=[
+                {
+                    'Name': 'tag:Name',
+                    'Values': [instance_name + '*']
+                }
+            ]
+        )
+
+        instances = [instance for reservation in response.get('Reservations', []) for instance in reservation.get('Instances', [])]
+        return instances
 
 async def scaling_controller():
     pending_requests = await get_sqs_length()
@@ -38,38 +41,49 @@ async def scaling_controller():
     current_servers = len([instance for instance in instances if instance['State']['Name'] in ['running', 'pending']])
 
     if servers_required > current_servers:
+        print("scaling up")
         await scale_up_servers(num=servers_required-current_servers)
     elif servers_required < current_servers:
+        print("scaling down")
         await scale_down_servers(num=current_servers-servers_required)
 
 async def scale_up_servers(instance_name=APP_INSTANCE_NAME, num=1):
+    # await asyncio.sleep(1)
     instances = await get_instances_with_tag(instance_name)
-    stopped_instances = [instance for instance in instances if instance['State']['Name'] in ['stopped', 'stopping']]
+    stopped_instances = [instance for instance in instances if instance['State']['Name'] in ['stopped']]
 
     if stopped_instances:
-        instances_to_start = stopped_instances[:num]
+        instances_to_start = stopped_instances[:min(num, len(stopped_instances))]
         instance_ids = [instance['InstanceId'] for instance in instances_to_start]
-        await run_async(ec2_client.start_instances, InstanceIds=instance_ids)
+        async with session.client('ec2') as ec2_client:
+            await ec2_client.start_instances(InstanceIds=instance_ids)
     else:
-        print("Cannot start any more instances. Number of running instances is equal to the max number.")
+        print("Cannot start any more instances")
         return
 
 async def scale_down_servers(instance_name=APP_INSTANCE_NAME, num=1):
+    # await asyncio.sleep(1)
     instances = await get_instances_with_tag(instance_name)
-    running_instances = [instance for instance in instances if instance['State']['Name'] == 'running']
+    running_instances = [instance for instance in instances if instance['State']['Name'] in ['running']]
 
-    if len(running_instances) < num:
-        print("Cannot stop instances. Number of running instances is less than or equal to the required number.")
+    if running_instances:
+        instances_to_stop = running_instances[:min(num, len(running_instances))]
+        instance_ids = [instance['InstanceId'] for instance in instances_to_stop]
+        async with session.client('ec2') as ec2_client:
+            await ec2_client.stop_instances(InstanceIds=instance_ids)
+    else:
+        print("Cannot stop instances")
         return
-    
-    instances_to_stop = running_instances[:num]
-    instance_ids = [instance['InstanceId'] for instance in instances_to_stop]
-    await run_async(ec2_client.stop_instances, InstanceIds=instance_ids)
 
 async def get_sqs_length():
-    response = await run_async(sqs_client.get_queue_attributes, QueueUrl=REQUEST_QUEUE_URL, AttributeNames=['ApproximateNumberOfMessages'])
-    print(int(response['Attributes']['ApproximateNumberOfMessages']))
-    return int(response['Attributes']['ApproximateNumberOfMessages'])
+    async with session.client('sqs') as sqs_client:
+        response = await sqs_client.get_queue_attributes(
+            QueueUrl=REQUEST_QUEUE_URL,
+            AttributeNames=['ApproximateNumberOfMessages']
+        )
+        sqs_length = int(response['Attributes']['ApproximateNumberOfMessages'])
+        print(f"SQS Length: {sqs_length}")
+        return sqs_length
 
 async def process_request(file_content, image_name):
     image_encoded = base64.b64encode(file_content).decode('utf-8')
@@ -78,73 +92,121 @@ async def process_request(file_content, image_name):
         'image_encoded': image_encoded
     }
     message_json = json.dumps(message)
-    await run_async(sqs_client.send_message, QueueUrl=REQUEST_QUEUE_URL, MessageBody=message_json)
-    response = await process_response_with_retry()
-    return response
+    async with session.client('sqs') as sqs_client:
+        await sqs_client.send_message(
+            QueueUrl=REQUEST_QUEUE_URL,
+            MessageBody=message_json
+        )
+        print("request pushed")
+        return image_name
 
 async def monitor_sqs_s3():
+    global pending_requests, last_request_time
     while True:
-        await scaling_controller()
+        if pending_requests:
+            await scaling_controller()
+            last_request_time = time.time()
+        if time.time()-last_request_time>300:
+            pending_requests = False
         await asyncio.sleep(1)
 
 async def startup_event():
-    asyncio.ensure_future(monitor_sqs_s3())
+    asyncio.create_task(monitor_sqs_s3())
 
-async def receive_message_with_retry(queue_url, max_retries=10, initial_delay=1):
+async def get_stored_response(request_id):
+    while True:
+        if request_id in response_store:
+            return response_store[request_id]
+        else:
+            await asyncio.sleep(1)
+
+async def get_data_From_msg(message_body):
+    image_id = message_body['image_name']
+    image_result = message_body['image_result']
+    return image_id, image_result
+
+# async def process_response():
+#     try:
+#         async with session.client('sqs') as sqs_client:
+#             receive_response = await sqs_client.receive_message(
+#                 QueueUrl=RESPONSE_QUEUE_URL,
+#                 AttributeNames=['SentTimestamp'],
+#                 MaxNumberOfMessages=1,
+#                 MessageAttributeNames=['All'],
+#                 VisibilityTimeout=5,
+#                 WaitTimeSeconds=20
+#             )
+
+#             if 'Messages' in receive_response:
+#                 message = receive_response['Messages'][0]
+#                 message_body = json.loads(message['Body'])
+#                 image_id, image_result = await get_data_From_msg(message_body)
+#                 response_store[image_id] = image_result
+#                 print(f"output is: {image_result}")
+#                 receipt_handle = message['ReceiptHandle']
+#                 async with session.client('sqs') as sqs_client:
+#                     await sqs_client.delete_message(
+#                         QueueUrl=RESPONSE_QUEUE_URL,
+#                         ReceiptHandle=receipt_handle
+#                     )
+#             else:
+#                 print("No messages received")
+#     except Exception as e:
+#         print(f"Error processing response: {e}")
+
+async def process_response_retries(delay=2, max_retries=200):
     retries = 0
-    delay = initial_delay
 
     while retries < max_retries:
         try:
-            response = await run_async(sqs_client.receive_message, QueueUrl=queue_url, AttributeNames=['SentTimestamp'], MaxNumberOfMessages=1, MessageAttributeNames=['All'], VisibilityTimeout=0, WaitTimeSeconds=20)
-            if 'Messages' in response:
-                return response['Messages'][0]  
-            await asyncio.sleep(delay)
-            delay *= 2
-            retries += 1
+            async with session.client('sqs') as sqs_client:
+                receive_response = await sqs_client.receive_message(
+                    QueueUrl=RESPONSE_QUEUE_URL,
+                    AttributeNames=['SentTimestamp'],
+                    MaxNumberOfMessages=1,
+                    MessageAttributeNames=['All'],
+                    VisibilityTimeout=5,
+                    WaitTimeSeconds=20
+                )
+
+                if 'Messages' in receive_response:
+                    message = receive_response['Messages'][0]
+                    message_body = json.loads(message['Body'])
+                    image_id, image_result = await get_data_From_msg(message_body)
+                    response_store[image_id] = image_result
+                    print(f"output is: {image_result}")
+                    receipt_handle = message['ReceiptHandle']
+                    async with session.client('sqs') as sqs_client:
+                        await sqs_client.delete_message(
+                            QueueUrl=RESPONSE_QUEUE_URL,
+                            ReceiptHandle=receipt_handle
+                        )
+                    return
+                else:
+                    print("No messages received")
         except Exception as e:
-            print(f"Error receiving message: {str(e)}")
+            print(f"Error processing response: {e}")
 
-    return None
+        retries+=1
 
-async def process_response_with_retry():
-    response = await receive_message_with_retry(RESPONSE_QUEUE_URL)
+        print(f"Retrying in {delay} seconds...")
+        await asyncio.sleep(delay)
 
-    if response is not None:
-        app_result = response['Body']
-        receipt_handle = response['ReceiptHandle']
-        await run_async(sqs_client.delete_message, QueueUrl=RESPONSE_QUEUE_URL, ReceiptHandle=receipt_handle)
-        return app_result
-    else:
-        return None
-
-async def process_response():
-    receive_response = sqs_client.receive_message(
-        QueueUrl=RESPONSE_QUEUE_URL,
-        AttributeNames=['SentTimestamp'],
-        MaxNumberOfMessages=1,
-        MessageAttributeNames=['All'],
-        VisibilityTimeout=0,
-        WaitTimeSeconds=20
-    )
-
-    if 'Messages' in receive_response:
-        message = receive_response['Messages'][0]
-        app_result = message['Body']
-        receipt_handle = message['ReceiptHandle']
-        sqs_client.delete_message(
-            QueueUrl=RESPONSE_QUEUE_URL,
-            ReceiptHandle=receipt_handle
-        )
-        return app_result
+    print("Max retries reached, giving up.")
 
 @app.post("/", response_class=PlainTextResponse)
 async def get_app_result(inputFile: UploadFile):
 
+    global pending_requests
+    pending_requests = True
+
     file_content = await inputFile.read()
     image_name = inputFile.filename.split('.')[0]
 
-    response = await process_request(file_content, image_name)
+    request_id = await process_request(file_content, image_name)
+    # await process_response()
+    await process_response_retries()
+    response = await get_stored_response(request_id)
     return response
 
 app.add_event_handler("startup", startup_event)
