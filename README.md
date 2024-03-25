@@ -5,7 +5,9 @@ The web application consists of :<br>
 * SQS (input and output): The SQS would enable decoupling between the web and app servers, allowing them to work asynchronously and scale independently.
 * S3: To store the requests input and response outputs for sanity check.
 
-The web server would contain a controller logic that scales the app servers based on the amount of requests pending in the request SQS.
+The web server would contain a controller logic that scales the app servers based on the amount of requests pending in the request SQS.<br>
+The architecture of the application is as follows:
+![CC-Project1-Part2-Architecture](https://github.com/husainasad/Cloud-Computing-1-2/assets/32503674/a939f54b-cb07-4dc9-9d88-f1605efc9b44)
 
 ## Step 1: Create Web Server and App Server Applications
 The web server would be a FastAPI application. The app server can be developed as a python script running continuously. <br>
