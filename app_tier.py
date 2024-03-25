@@ -1,5 +1,4 @@
 from Resources.model.face_recognition import face_match
-from functools import partial
 import aioboto3, base64, json, asyncio, os, signal, logging, sys
 
 with open('config.json') as f:

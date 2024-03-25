@@ -1,10 +1,16 @@
 {
     "AWS_REGION": "us-east-1",
+    "AMI_ID": "ami-0c7217cdde317cfec",
+    "SECURITY_GROUP": ["sg-0ef331f308211b7ec"],
+    "REQUEST_QUEUE":"1225380117-req-queue",
+    "RESPONSE_QUEUE":"1225380117-resp-queue",
     "REQUEST_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-req-queue",
     "RESPONSE_QUEUE_URL": "https://sqs.us-east-1.amazonaws.com/223420481310/1225380117-resp-queue",
     "IN_BUCKET": "1225380117-in-bucket",
     "OUT_BUCKET": "1225380117-out-bucket",
     "DATA_PT_PATH": "./Resources/model/data.pt",
+    "WEB_SERVER_NAME": "web-instance",
+    "APP_SERVER_NAME": "app-instance",
     "APP_INSTANCE_NAME": "app-tier-instance-",
     "MAX_SERVERS": 20
   }
