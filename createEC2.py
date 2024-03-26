@@ -18,7 +18,7 @@ session = boto3.Session()
 ec2_client = session.client('ec2', region_name=AWS_REGION)
 
 for name, user_data in instance_data.items():
-    instance = ec2_client.create_instances(
+    instance = ec2_client.run_instances(
         ImageId=AMI_ID,
         MinCount=1,
         MaxCount=1,
@@ -32,6 +32,4 @@ for name, user_data in instance_data.items():
                                 'Value': name }]}]
     )
 
-    instance[0].wait_until_running()
-
-    print("Instance ID:", instance[0].id)
+    print(instance['Instances'][0]['InstanceId'])

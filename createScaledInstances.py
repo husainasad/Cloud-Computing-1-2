@@ -14,7 +14,7 @@ ec2_client = session.client('ec2', region_name=AWS_REGION)
 
 for i in range(1, instance_num + 1):
     name = instance_name + str(i)
-    instance = ec2_client.create_instances(
+    instance = ec2_client.run_instances(
         ImageId=AMI_ID,
         MinCount=1,
         MaxCount=1,
@@ -27,5 +27,4 @@ for i in range(1, instance_num + 1):
                                 'Value': name }]}]
     )
 
-    instance[0].wait_until_running()
-    print("Instance ID:", instance[0].id)
+    print(instance['Instances'][0]['InstanceId'])
