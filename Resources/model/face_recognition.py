@@ -6,7 +6,7 @@ import csv
 import sys
 import torch
 from PIL import Image
-from facenet_pytorch import MTCNN, InceptionResnetV1
+from Resources.model.facenet_pytorch import MTCNN, InceptionResnetV1
 from torchvision import datasets
 from torch.utils.data import DataLoader
 

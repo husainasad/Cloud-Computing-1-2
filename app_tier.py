@@ -1,3 +1,4 @@
+from Resources.model import facenet_pytorch
 from Resources.model.face_recognition import face_match
 import aioboto3, base64, json, asyncio, os, signal, logging, sys
 

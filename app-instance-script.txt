@@ -4,12 +4,11 @@ sudo apt-get update -y
 sudo apt install python3.10-venv -y
 python3 -m venv projectenv
 source projectenv/bin/activate
-sudo apt-get update -y
-git clone -q https://github.com/husainasad/Cloud-Computing-1-2.git
+git clone -q https://github.com/husainasad/FaceFlow-Distributed.git
 pip install --upgrade pip
+pip install --upgrade setuptools
 pip install aioboto3
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install facenet_pytorch
 
 echo "[Unit]
 Description=My App server
@@ -19,7 +18,7 @@ StartLimitIntervalSec=0
 [Service]
 Type=simple
 ExecStart=/home/ubuntu/projectenv/bin/python app_tier.py
-WorkingDirectory=/home/ubuntu/Cloud-Computing-1-2
+WorkingDirectory=/home/ubuntu/FaceFlow-Distributed
 User=ubuntu
 Restart=always
 RestartSec=1
