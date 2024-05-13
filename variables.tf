@@ -43,6 +43,16 @@ variable "iam_profile" {
     default = "ec2-full-access-role"
 }
 
+variable "server_key" {
+    description = "The key pair to associate with web and app servers."
+    default = "DevCSE546"
+}
+
+variable "local_key_path" {
+    description = "The local path for key pair to enable remote-exec."
+    default = "../../DevCSE546.pem"
+}
+
 variable "web_server" {
     description = "The name of the web server instance."
     default = "web-instance"
